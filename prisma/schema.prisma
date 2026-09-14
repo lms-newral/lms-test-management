@@ -1,0 +1,827 @@
+// synappses-test: the question bank, and next the test engine.
+//
+// This is its own database. `tenantId`, `createdById` and similar columns hold
+// ids owned by the main backend and are plain strings: there is no User or
+// Tenant table here, and there must never be a foreign key back into the LMS.
+//
+// The models below were copied from lms-backend-main/prisma/schema.prisma with
+// Question's relations to User, Tenant, Test, QuestionBank, Poll and Answer
+// removed. Question keeps the legacy test-engine columns (testId, questionType,
+// mcqOptions, ...) because the ported bank code still reads and writes them.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum QuestionType {
+  MCQ
+  TEXT
+  CODE
+}
+
+/// Levels of the subject tree. Adding a level later (CLASS, EXAM, UNIT) is one
+/// enum value, not a change of shape, which is why this is one self-referencing
+/// table rather than three fixed ones.
+enum TaxonomyKind {
+  SUBJECT
+  CHAPTER
+  TOPIC
+  SUBTOPIC
+}
+
+/// How the system stores, grades and renders an answer
+enum AnswerKernel {
+  SINGLE_CHOICE
+  MULTI_CHOICE
+  NUMERIC
+  SHORT_TEXT
+  LONG_TEXT
+  MATCHING
+  ORDERING
+  CODE
+}
+
+enum FieldType {
+  TEXT
+  NUMBER
+  SELECT
+  MULTI_SELECT
+  BOOLEAN
+  DATE
+}
+
+enum FieldRole {
+  DIFFICULTY
+  SOURCE
+  LANGUAGE
+  COGNITIVE_LEVEL
+}
+
+enum QuestionStatus {
+  DRAFT
+  IN_REVIEW
+  APPROVED
+  REJECTED
+  RETIRED
+}
+
+enum UsageType {
+  TEST
+  QUIZ
+  POLL
+  LIVE_CLASS_MCQ
+  PRACTICE
+}
+
+enum SolutionKind {
+  TEXT
+  VIDEO
+  HINT
+}
+
+/// When a solution may be revealed. This is a security control, not a
+/// preference: without it a student sitting a live test can fetch the answer.
+/// Enforced in the resolver, never the client.
+enum SolutionVisibility {
+  ALWAYS
+  AFTER_SUBMIT
+  AFTER_TEST_CLOSE
+}
+
+enum VideoProvider {
+  YOUTUBE
+  VIMEO
+  UPLOADED
+  EXTERNAL
+}
+
+/// Subject -> Chapter -> Topic, as a tree.
+///
+/// Uniqueness is enforced by two partial indexes created in raw SQL, not by
+/// @@unique, because Postgres treats NULLs as distinct: a plain unique on
+/// (tenantId, kind, parentId, name) would not stop two subjects both named
+/// "Physics" at the root, where parentId is NULL.
+model Taxonomy {
+  id       String       @id @default(uuid())
+  tenantId String
+  kind     TaxonomyKind
+  name     String
+  code     String?
+
+  parentId String?
+  parent   Taxonomy?  @relation("TaxonomyTree", fields: [parentId], references: [id])
+  children Taxonomy[] @relation("TaxonomyTree")
+
+  orderIndex Int     @default(0)
+  isActive   Boolean @default(true)
+
+  deletedAt   DateTime?
+  deletedById String?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  questionsAsSubject  Question[] @relation("QuestionSubject")
+  questionsAsChapter  Question[] @relation("QuestionChapter")
+  questionsAsTopic    Question[] @relation("QuestionTopic")
+  questionsAsSubtopic Question[] @relation("QuestionSubtopic")
+
+  @@index([tenantId, kind])
+  @@index([parentId])
+}
+
+/// An admin-defined question type bound to one AnswerKernel.
+///
+/// Examples: SCQ -> SINGLE_CHOICE {minOptions:4, negativeMarks:-1};
+/// Integer Type -> NUMERIC {tolerance:0, integerOnly:true};
+/// Assertion-Reason -> SINGLE_CHOICE {layoutHint:"assertion_reason"}.
+model QuestionTypeDef {
+  id       String       @id @default(uuid())
+  tenantId String
+  code     String
+  label    String
+  kernel   AnswerKernel
+  aliases  String[]
+
+  /// Kernel-specific settings: option counts, negative marking, tolerance,
+  /// fixed option labels, partial-marking rules.
+  config Json?
+
+  /// Renders a specialised template over the same kernel, e.g.
+  /// "assertion_reason", "true_false", "comprehension".
+  layoutHint String?
+
+  icon       String?
+  color      String?
+  isActive   Boolean @default(true)
+  orderIndex Int     @default(0)
+
+  deletedAt DateTime?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  questions Question[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, isActive])
+}
+
+/// An admin-defined field on a question. Difficulty ships as a seeded instance
+/// of this with role DIFFICULTY rather than as a hardcoded column.
+model DifficultyLevel {
+  id       String @id @default(uuid())
+  tenantId String
+  code     String
+  label    String
+
+  aliases String[]
+
+  color      String?
+  orderIndex Int     @default(0)
+  isActive   Boolean @default(true)
+
+  deletedAt   DateTime?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  questions Question[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, isActive])
+}
+
+model QuestionFieldDef {
+  id       String     @id @default(uuid())
+  tenantId String
+  key      String
+  label    String
+  type     FieldType
+  role     FieldRole?
+
+  required   Boolean @default(false)
+  isActive   Boolean @default(true)
+  orderIndex Int     @default(0)
+  helpText   String?
+
+  deletedAt DateTime?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  options QuestionFieldOption[]
+
+  @@unique([tenantId, key])
+  @@index([tenantId, isActive])
+}
+
+model QuestionFieldOption {
+  id    String           @id @default(uuid())
+  defId String
+  def   QuestionFieldDef @relation(fields: [defId], references: [id], onDelete: Cascade)
+
+  value String
+  label String
+
+  /// Orders and targets the option numerically, so a blueprint can ask for
+  /// difficulty weight <= 2 without knowing the tenant's labels.
+  weight Int?
+
+  color      String?
+  orderIndex Int     @default(0)
+  isActive   Boolean @default(true)
+
+  @@unique([defId, value])
+  @@index([defId])
+}
+
+/// A comprehension passage or common stem shared by several questions.
+model QuestionGroup {
+  id       String  @id @default(uuid())
+  tenantId String
+  title    String?
+
+  passageHtml String? @db.Text
+
+  deletedAt   DateTime?
+  deletedById String?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  questions Question[]
+
+  @@index([tenantId])
+}
+
+model Question {
+  id                String       @id @default(uuid())
+  tenantId          String
+  testId            String?
+  createdById       String
+  questionText      String
+  questionType      QuestionType
+  marks             Int          @default(1)
+  orderIndex        Int          @default(0)
+  mcqOptions        Json?
+  textConfig        Json?
+  codeConfig        Json?
+  isSelfExamined    Boolean      @default(false)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  allowPartialMarks Boolean      @default(false)
+  category          String?
+  difficulty        String?      @default("medium")
+  explanation       String?
+  hints             Json?
+  isTemplate        Boolean      @default(false)
+  mediaType         String?
+  mediaUrl          String?
+  partialMarksRules Json?
+  questionBankId    String?
+  tags              String[]
+
+  questionTypeId String?
+  typeDef        QuestionTypeDef? @relation(fields: [questionTypeId], references: [id])
+
+  groupId String?
+  group   QuestionGroup? @relation(fields: [groupId], references: [id])
+
+  subjectId    String?
+  chapterId    String?
+  topicId      String?
+  /// Optional fourth level. A question filed only to Topic is valid; forcing a
+  /// subtopic would make authors invent one.
+  subtopicId   String?
+  subject      Taxonomy? @relation("QuestionSubject", fields: [subjectId], references: [id])
+  chapter      Taxonomy? @relation("QuestionChapter", fields: [chapterId], references: [id])
+  topic        Taxonomy? @relation("QuestionTopic", fields: [topicId], references: [id])
+  subtopic     Taxonomy? @relation("QuestionSubtopic", fields: [subtopicId], references: [id])
+  customFields Json?
+  answerConfig Json?
+
+  difficultyId    String?
+  difficultyLevel DifficultyLevel? @relation(fields: [difficultyId], references: [id])
+
+  status         QuestionStatus @default(DRAFT)
+  currentVersion Int            @default(1)
+
+  deletedAt   DateTime?
+  deletedById String?
+
+  normalizedHash String?
+
+  solutions QuestionSolution[]
+  usages    QuestionUsage[]
+  versions  QuestionVersion[]
+  /// Places this question is picked into a test paper (draft or published).
+  testQuestions TestQuestion[]
+
+
+  @@index([tenantId, testId])
+  @@index([testId, orderIndex])
+  @@index([tenantId, status, deletedAt])
+  @@index([tenantId, subjectId, chapterId, topicId])
+  @@index([tenantId, subjectId, chapterId, topicId, subtopicId])
+  @@index([subtopicId])
+  @@index([questionBankId])
+  @@index([groupId])
+  @@index([normalizedHash])
+  @@index([difficultyId])
+}
+
+/// Full history. On every update the prior state is written here and
+/// Question.currentVersion is incremented.
+model QuestionVersion {
+  id String @id @default(uuid())
+
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  version     Int
+  snapshot    Json
+  changedById String?
+  changeNote  String?
+  createdAt   DateTime @default(now())
+
+  @@unique([questionId, version])
+  @@index([questionId])
+}
+
+/// Repeatable solution blocks: a written solution, one or more videos, and
+/// hints, each with its own reveal rule.
+model QuestionSolution {
+  id       String @id @default(uuid())
+  tenantId String
+
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  kind        SolutionKind
+  contentHtml String?      @db.Text
+
+  videoProvider VideoProvider?
+  videoUrl      String?
+
+  /// Reserved for Phase 4. VideoAsset.lessonId is currently @unique and
+  /// required, so the HLS/DRM pipeline cannot attach here until that column is
+  /// made nullable and given a polymorphic owner.
+  videoAssetId String?
+  durationSec  Int?
+
+  language   String?
+  visibility SolutionVisibility @default(AFTER_SUBMIT)
+  orderIndex Int                @default(0)
+
+  deletedAt DateTime?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([questionId])
+  @@index([tenantId])
+}
+
+/// One row per place a question is used. This is both the "Used in" column and
+/// the freeze: `snapshot` holds the question exactly as published, so later
+/// edits to the bank cannot alter an assessment already taken.
+model QuestionUsage {
+  id       String @id @default(uuid())
+  tenantId String
+
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id])
+
+  usedInType UsageType
+  usedInId   String
+
+  /// The Question.currentVersion pinned at publish time.
+  version Int
+
+  snapshot Json
+
+  marks         Float?
+  negativeMarks Float?
+  orderIndex    Int    @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@unique([usedInType, usedInId, questionId])
+  @@index([questionId])
+  @@index([usedInType, usedInId])
+  @@index([tenantId])
+}
+
+/// A recipe for generating a test from the bank.
+model TestBlueprint {
+  id          String  @id @default(uuid())
+  tenantId    String
+  name        String
+  description String?
+
+  /// [{ count, marks, negativeMarks, filters: { topicIds, typeIds,
+  ///    fieldValues, status } }]
+  rules Json
+
+  totalMarks Int?
+  shuffle    Boolean @default(true)
+
+  /// Fixing the seed makes a generated paper reproducible for audit.
+  seed Int?
+
+  /// Skip questions used in the last N assessments, so successive papers do
+  /// not repeat. Null disables the exclusion.
+  excludeRecentCount Int?
+
+  deletedAt   DateTime?
+  deletedById String?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId])
+}
+
+/// Tracks a Word/CSV import through parse -> review -> commit. Imports run
+/// pandoc, LibreOffice, MathJax and S3 uploads, which is far too slow for a
+/// request cycle, so the admin polls this row and can reopen the report.
+model QuestionImportJob {
+  id          String @id @default(uuid())
+  tenantId    String
+  createdById String
+
+  fileKey        String
+  fileName       String?
+  questionBankId String?
+
+  /// PARSING | AWAITING_REVIEW | COMMITTING | DONE | FAILED
+  status        String @default("PARSING")
+  parsedCount   Int    @default(0)
+  importedCount Int    @default(0)
+
+  /// Unknown taxonomy values, duplicates, unmapped headers and row warnings.
+  report Json?
+
+  failureReason String?   @db.Text
+  committedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  rows QuestionImportRow[]
+
+  @@index([tenantId, status])
+}
+
+/// One parsed question, staged between parse and commit.
+///
+/// Two-phase import means a human reviews what was parsed *before* anything is
+/// written to `Question`. These rows are that in-between state: a failed or
+/// abandoned job leaves them here and the bank untouched.
+model QuestionImportRow {
+  id       String @id @default(uuid())
+  jobId    String
+  tenantId String
+
+  rowIndex Int
+  /// The parsed cells before mapping, keyed by the header they came from.
+  /// Unknown columns are kept here rather than dropped silently.
+  raw      Json?
+
+  /// Resolved during parse; null where unresolved. Unresolved is not a failure
+  /// -- it is a BLOCKING row the reviewer fixes before commit.
+  questionTypeId String?
+  subjectId      String?
+  chapterId      String?
+  topicId        String?
+  subtopicId     String?
+  difficultyId   String?
+
+  bodyHtml         String? @db.Text
+  optionsJson      Json?
+  answerConfig     Json?
+  solutionHtml     String? @db.Text
+  solutionVideoUrl String?
+  marks            Int?
+
+  /// BLOCKING (cannot commit) | WARNING (commits, flagged) | OK
+  severity String @default("OK")
+  issues   Json?
+
+  /// Set when the reviewer fixed it in the UI, so the original parse stays
+  /// readable next to the correction.
+  overrides Json?
+
+  /// An existing bank question with the same normalised stem, if any.
+  duplicateOfId String?
+  /// Populated on commit.
+  createdId     String?
+  /// The reviewer chose to leave this row out.
+  dropped       Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  job QuestionImportJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, rowIndex])
+  @@index([jobId, severity])
+  @@index([tenantId])
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Test management: formats (reusable exam patterns) and tests built on them.
+//
+// A format is LOCKED as soon as any test uses it: changing a pattern under
+// existing tests would make every stored score and analytic wrong. To change a
+// used format, duplicate it. Published tests freeze their questions into the
+// bank's QuestionUsage table (usedInType TEST), which also stops those bank
+// questions from being deleted.
+// ═════════════════════════════════════════════════════════════════════════════
+
+enum TestFormatStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum TestStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+/// A reusable exam pattern, e.g. "JEE Main". tenantId NULL marks a platform
+/// template that institutes copy into their own formats.
+model TestFormat {
+  id               String           @id @default(uuid())
+  tenantId         String?
+  name             String
+  status           TestFormatStatus @default(DRAFT)
+  instructionsHtml String?          @db.Text
+  durationMinutes  Int
+
+  /// Shown on platform templates, e.g. "review before use".
+  templateNote     String?
+  /// The template this format was copied from, if any.
+  sourceTemplateId String?
+
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  deletedById String?
+
+  subjects TestFormatSubject[]
+  bands    TestPercentileBand[]
+  tests    Test[]
+
+  @@index([tenantId, status])
+}
+
+/// One subject of a format, with the totals its sections must add up to.
+model TestFormatSubject {
+  id       String     @id @default(uuid())
+  formatId String
+  format   TestFormat @relation(fields: [formatId], references: [id], onDelete: Cascade)
+
+  /// The tenant's SUBJECT taxonomy node. NULL on platform templates, which
+  /// match subjects by name when copied.
+  subjectId   String?
+  /// Name at the time of saving; the mapping key for templates.
+  subjectName String
+
+  totalQuestions Int
+  totalMarks     Decimal @db.Decimal(8, 2)
+  orderIndex     Int     @default(0)
+
+  sections TestFormatSection[]
+  syllabi  TestSubjectSyllabus[]
+
+  @@unique([formatId, subjectId])
+  @@index([formatId])
+}
+
+/// A named part of a subject, e.g. "Section A", with its own instructions.
+model TestFormatSection {
+  id               String            @id @default(uuid())
+  formatSubjectId  String
+  formatSubject    TestFormatSubject @relation(fields: [formatSubjectId], references: [id], onDelete: Cascade)
+  name             String
+  instructionsHtml String?           @db.Text
+  orderIndex       Int               @default(0)
+
+  rows TestFormatRow[]
+
+  @@index([formatSubjectId])
+}
+
+/// One block of questions of a single type with one marking scheme.
+model TestFormatRow {
+  id        String            @id @default(uuid())
+  sectionId String
+  section   TestFormatSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  /// The tenant's question type. NULL on platform templates (matched by code).
+  questionTypeId   String?
+  questionTypeCode String
+  /// Kernel at the time of saving; partial marking is only valid on MULTI_CHOICE.
+  kernel           AnswerKernel
+
+  questionCount    Int
+  /// "Attempt at most N" of this row's questions. NULL = all compulsory.
+  attemptLimit     Int?
+  marksPerQuestion Decimal @db.Decimal(6, 2)
+  /// Stored as a positive number and subtracted for a wrong answer.
+  negativeMarks    Decimal @db.Decimal(6, 2)
+  partialMarking   Boolean @default(false)
+  orderIndex       Int     @default(0)
+
+  testQuestions TestQuestion[]
+
+  @@index([sectionId])
+}
+
+/// Predicted percentile for a total test score range (inclusive).
+model TestPercentileBand {
+  id         String     @id @default(uuid())
+  formatId   String
+  format     TestFormat @relation(fields: [formatId], references: [id], onDelete: Cascade)
+  minScore   Decimal    @db.Decimal(8, 2)
+  maxScore   Decimal    @db.Decimal(8, 2)
+  percentile Decimal    @db.Decimal(5, 2)
+  orderIndex Int        @default(0)
+
+  @@index([formatId])
+}
+
+/// One exam built on a format.
+model Test {
+  id       String     @id @default(uuid())
+  tenantId String
+  formatId String
+  format   TestFormat @relation(fields: [formatId], references: [id])
+
+  name            String
+  year            Int?
+  descriptionHtml String? @db.Text
+  plannerFileKey  String?
+  plannerFileName String?
+  /// Overrides the format's duration when set.
+  durationMinutes Int?
+
+  status        TestStatus @default(DRAFT)
+  publishedAt   DateTime?
+  publishedById String?
+
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  deletedById String?
+
+  syllabi   TestSubjectSyllabus[]
+  questions TestQuestion[]
+  seriesNodes TestSeriesNode[]
+
+  @@index([tenantId, status])
+  @@index([formatId])
+}
+
+/// The syllabus text for one format subject of a test.
+model TestSubjectSyllabus {
+  id              String            @id @default(uuid())
+  testId          String
+  test            Test              @relation(fields: [testId], references: [id], onDelete: Cascade)
+  formatSubjectId String
+  formatSubject   TestFormatSubject @relation(fields: [formatSubjectId], references: [id])
+  syllabusHtml    String?           @db.Text
+
+  @@unique([testId, formatSubjectId])
+}
+
+/// A bank question placed into a row of a test, in the teacher's order.
+model TestQuestion {
+  id         String        @id @default(uuid())
+  testId     String
+  test       Test          @relation(fields: [testId], references: [id], onDelete: Cascade)
+  rowId      String
+  row        TestFormatRow @relation(fields: [rowId], references: [id])
+  questionId String
+  question   Question      @relation(fields: [questionId], references: [id])
+  orderIndex Int           @default(0)
+  createdAt  DateTime      @default(now())
+
+  @@unique([testId, questionId])
+  @@index([testId, rowId, orderIndex])
+  @@index([questionId])
+}
+
+// ─── Test series ─────────────────────────────────────────────────────────────
+
+/// DRAFT is being built. PUBLISHED is visible to students inside its window.
+/// UNPUBLISHED was published once and is hidden again.
+enum TestSeriesStatus {
+  DRAFT
+  PUBLISHED
+  UNPUBLISHED
+}
+
+enum TestSeriesNodeKind {
+  FOLDER
+  TEST
+}
+
+/// A sellable bundle of tests arranged in folders, like a course. Tests are only
+/// linked, never copied: one test can sit in many series and its attempts and
+/// results always belong to the test, so they add up across every series.
+model TestSeries {
+  id              String           @id @default(uuid())
+  tenantId        String
+  name            String
+  classLevel      String?
+  examType        String?
+  targetYear      Int?
+  descriptionHtml String?          @db.Text
+  /// Storage key of the cover image shown on the store and listing pages.
+  coverImageKey   String?
+
+  isPaid          Boolean          @default(false)
+  price           Decimal?         @db.Decimal(10, 2)
+  /// What students actually pay when set.
+  discountedPrice Decimal?         @db.Decimal(10, 2)
+
+  /// Students can see the series only between these.
+  startAt         DateTime?
+  endAt           DateTime?
+
+  status          TestSeriesStatus @default(DRAFT)
+  publishedAt     DateTime?
+  publishedById   String?
+
+  createdById     String
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  deletedAt       DateTime?
+  deletedById     String?
+
+  nodes           TestSeriesNode[]
+  enrollments     TestSeriesEnrollment[]
+
+  @@index([tenantId, status])
+}
+
+/// A folder or a test inside a series. Test nodes carry their own schedule.
+model TestSeriesNode {
+  id            String             @id @default(uuid())
+  seriesId      String
+  series        TestSeries         @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  parentId      String?
+  parent        TestSeriesNode?    @relation("TestSeriesTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children      TestSeriesNode[]   @relation("TestSeriesTree")
+  kind          TestSeriesNodeKind
+  /// Folder name. Test nodes show the test's own name.
+  name          String?
+  testId        String?
+  test          Test?              @relation(fields: [testId], references: [id])
+
+  availableFrom DateTime?
+  availableTo   DateTime?
+  resultAt      DateTime?
+  orderIndex    Int                @default(0)
+  createdAt     DateTime           @default(now())
+
+  @@unique([seriesId, testId])
+  @@index([seriesId, parentId, orderIndex])
+  @@index([testId])
+}
+
+/// A student in a series. The name and email are copied at enrollment for listing.
+model TestSeriesEnrollment {
+  id         String     @id @default(uuid())
+  tenantId   String
+  seriesId   String
+  series     TestSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  userId     String
+  userName   String?
+  userEmail  String?
+  /// FREE or PAID.
+  source     String     @default("FREE")
+  amountPaid Decimal?   @db.Decimal(10, 2)
+  enrolledAt DateTime   @default(now())
+
+  @@unique([seriesId, userId])
+  @@index([tenantId, userId])
+}

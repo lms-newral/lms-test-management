@@ -1,0 +1,48 @@
+# Node modules
+node_modules/
+npm-debug.log
+
+# Build output
+dist/
+build/
+
+# Environment files
+.env
+.env*.local
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage/
+.nyc_output/
+
+# Documentation
+*.md
+!README.md
+zmds/
+API_TESTING.md
+API_TESTING_CLEAN.md
+ENROLLMENTS_API_DOCUMENTATION.md
+ENROLLMENTS_REFACTORING_SUMMARY.md
+
+# Logs
+logs/
+*.log
+
+# Misc
+.prettierrc
+.eslintrc.js
+eslint.config.mjs

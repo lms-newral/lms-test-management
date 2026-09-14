@@ -1,0 +1,1029 @@
+# ------------------------------------------------------
+# THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
+# ------------------------------------------------------
+
+"""
+How the system stores, grades and renders an answer. Fixed set: admins create unlimited question types on top of these, so a new label costs nothing while a genuinely new behaviour needs a grader and a widget.
+"""
+enum AnswerKernel {
+  CODE
+  LONG_TEXT
+  MATCHING
+  MULTI_CHOICE
+  NUMERIC
+  ORDERING
+  SHORT_TEXT
+  SINGLE_CHOICE
+}
+
+type BankFacets {
+  byDifficulty: [FacetCount!]!
+  byStatus: [FacetCount!]!
+  bySubject: [FacetCount!]!
+  byType: [FacetCount!]!
+  total: Int!
+}
+
+input BankMCQOptionInput {
+  id: String
+  isCorrect: Boolean!
+  text: String!
+}
+
+type BankQuestionEntity {
+  answerConfig: JSON
+  chapter: TaxonomyNode
+  createdAt: DateTime!
+  createdById: ID
+  currentVersion: Int!
+  difficulty: DifficultyLevelEntity
+  explanation: String
+  group: QuestionGroupEntity
+
+  """Another live question in this tenant shares the same stem."""
+  hasDuplicate: Boolean!
+  id: ID!
+  marks: Float
+  mcqOptions: JSON
+  mediaUrl: String
+  normalizedHash: String
+  questionBankId: ID
+  questionText: String!
+  solutions: [QuestionSolutionEntity!]!
+  status: QuestionStatus!
+  subject: TaxonomyNode
+  subtopic: TaxonomyNode
+  topic: TaxonomyNode
+  typeDef: QuestionTypeDefEntity
+  updatedAt: DateTime!
+
+  """How many assessments use this question."""
+  usageCount: Int!
+}
+
+input BankQuestionFilterInput {
+  chapterIds: [ID!]
+  difficultyIds: [ID!]
+
+  """Only questions whose stem hash collides with another."""
+  duplicatesOnly: Boolean
+
+  """Include soft-deleted questions. Defaults to false."""
+  includeDeleted: Boolean
+  questionBankId: ID
+  questionTypeIds: [ID!]
+
+  """Free-text search over the stem."""
+  search: String
+  statuses: [QuestionStatus!]
+  subjectIds: [ID!]
+  subtopicIds: [ID!]
+  tags: [String!]
+  topicIds: [ID!]
+}
+
+type BankQuestionPage {
+  items: [BankQuestionEntity!]!
+  page: Int!
+  pageSize: Int!
+  total: Int!
+  totalPages: Int!
+}
+
+input BulkAssignImportRowsInput {
+  chapterId: ID
+  difficultyId: ID
+  jobId: ID!
+  questionTypeId: ID
+
+  """Rows to change. Empty means every row in the job."""
+  rowIds: [ID!]!
+  subjectId: ID
+  subtopicId: ID
+  topicId: ID
+}
+
+input CreateBankQuestionInput {
+  """
+  Kernel payload for NUMERIC, SHORT_TEXT, MATCHING and ORDERING. Validated against the type kernel server-side.
+  """
+  answerConfig: JSON
+  chapterId: ID
+  difficultyId: ID
+  explanation: String
+  groupId: ID
+
+  """Marks for a correct answer. Defaults to 1 when omitted."""
+  marks: Int
+
+  """Required for SINGLE_CHOICE and MULTI_CHOICE kernels."""
+  mcqOptions: [BankMCQOptionInput!]
+  mediaUrl: String
+  questionBankId: ID
+  questionText: String!
+  questionTypeId: ID!
+  status: QuestionStatus
+  subjectId: ID
+
+  """Optional fourth level. A question filed only to Topic is valid."""
+  subtopicId: ID
+  topicId: ID
+}
+
+input CreateDifficultyInput {
+  """Other spellings a Word file may use for this."""
+  aliases: [String!]
+  code: String!
+  color: String
+  label: String!
+  orderIndex: Int
+}
+
+input CreateQuestionImportJobInput {
+  fileName: String!
+
+  """Bank the committed questions are filed into."""
+  questionBankId: ID
+}
+
+input CreateQuestionTypeInput {
+  """Other spellings a Word file may use for this."""
+  aliases: [String!]
+
+  """Short uppercase code, unique per tenant. e.g. "SCQ"."""
+  code: String!
+  color: String
+  config: JSON
+  icon: String
+  kernel: AnswerKernel!
+  label: String!
+  layoutHint: String
+  orderIndex: Int
+}
+
+input CreateTaxonomyInput {
+  code: String
+  kind: TaxonomyKind!
+  name: String!
+  orderIndex: Int
+
+  """
+  Required for CHAPTER (must be a SUBJECT), TOPIC (must be a CHAPTER) and SUBTOPIC (must be a TOPIC). Must be null for SUBJECT.
+  """
+  parentId: ID
+}
+
+input CreateTestInput {
+  descriptionHtml: String
+
+  """Overrides the format's duration. Omit to use the format's."""
+  durationMinutes: Int
+  formatId: ID!
+  name: String!
+  year: Int
+}
+
+input CreateTestSeriesInput {
+  name: String!
+}
+
+"""
+A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format.
+"""
+scalar DateTime
+
+type DifficultyLevelEntity {
+  aliases: [String!]!
+  code: String!
+  color: String
+  id: ID!
+  isActive: Boolean!
+  label: String!
+  orderIndex: Int!
+  questionCount: Int!
+}
+
+type FacetCount {
+  count: Int!
+  key: String!
+  label: String
+}
+
+"""
+The `JSON` scalar type represents JSON values as specified by [ECMA-404](http://www.ecma-international.org/publications/files/ECMA-ST/ECMA-404.pdf).
+"""
+scalar JSON
+
+type Mutation {
+  addTestQuestions(questionIds: [ID!]!, rowId: ID!, testId: ID!): TestEntity!
+  addTestSeriesFolder(name: String!, parentId: ID, seriesId: ID!): TestSeriesEntity!
+
+  """
+  Enrolls students of your institute by email (offline payment or free access).
+  """
+  addTestSeriesStudents(emails: [String!]!, seriesId: ID!): [TestSeriesEnrollmentEntity!]!
+  addTestSeriesTests(parentId: ID, seriesId: ID!, testIds: [ID!]!): TestSeriesEntity!
+
+  """
+  Applies one taxonomy/type/difficulty choice to many rows and returns how many were changed. This is the fix for a single mis-spelled header breaking fifty rows identically.
+  """
+  bulkAssignImportRows(input: BulkAssignImportRowsInput!): Int!
+
+  """
+  Writes every reviewed row into the bank. Refused while any row is still BLOCKING -- fix or drop those first.
+  """
+  commitQuestionImport(jobId: ID!): QuestionImportJobEntity!
+  createBankQuestion(input: CreateBankQuestionInput!): BankQuestionEntity!
+  createDifficultyLevel(input: CreateDifficultyInput!): DifficultyLevelEntity!
+
+  """
+  Creates an import job and returns a presigned PUT for the .docx. Upload the file, then call startQuestionImport.
+  """
+  createQuestionImportJob(input: CreateQuestionImportJobInput!): QuestionImportUploadEntity!
+  createQuestionType(input: CreateQuestionTypeInput!): QuestionTypeDefEntity!
+  createTaxonomy(input: CreateTaxonomyInput!): TaxonomyNode!
+  createTest(input: CreateTestInput!): TestEntity!
+  createTestFormat(input: SaveTestFormatInput!): TestFormatEntity!
+
+  """
+  A presigned PUT for the planner PDF. Call setTestPlanner with the key after uploading.
+  """
+  createTestPlannerUpload(fileName: String!, testId: ID!): TestPlannerUploadEntity!
+  createTestSeries(input: CreateTestSeriesInput!): TestSeriesEntity!
+
+  """
+  A presigned PUT for the cover image. Call setTestSeriesCover with the key after uploading.
+  """
+  createTestSeriesCoverUpload(contentType: String!, fileName: String!, seriesId: ID!): TestSeriesCoverUploadEntity!
+
+  """
+  Soft delete. Refused while any assessment uses the question — retire it instead so historical results stay intact.
+  """
+  deleteBankQuestion(id: ID!): Boolean!
+  deleteDifficultyLevel(id: ID!): Boolean!
+  deleteQuestionSolution(id: ID!): Boolean!
+  deleteQuestionType(id: ID!): Boolean!
+
+  """
+  Soft-deletes the node and its descendants. Refused while questions still reference anything in that subtree.
+  """
+  deleteTaxonomy(id: ID!): Boolean!
+  deleteTest(id: ID!): Boolean!
+  deleteTestFormat(id: ID!): Boolean!
+  deleteTestSeries(id: ID!): Boolean!
+
+  """Leaves a row out of the commit, or puts it back in."""
+  dropQuestionImportRow(dropped: Boolean!, id: ID!): QuestionImportRowEntity!
+  duplicateTest(id: ID!): TestEntity!
+  duplicateTestFormat(id: ID!, name: String): TestFormatEntity!
+
+  """parentId null is the top level."""
+  moveTestSeriesNode(nodeId: ID!, orderIndex: Int!, parentId: ID): TestSeriesEntity!
+  publishTest(id: ID!): TestEntity!
+  publishTestSeries(id: ID!): TestSeriesEntity!
+  removeTestQuestion(questionId: ID!, testId: ID!): TestEntity!
+
+  """Removing a folder removes everything inside it."""
+  removeTestSeriesNode(nodeId: ID!): TestSeriesEntity!
+  removeTestSeriesStudent(enrollmentId: ID!): [TestSeriesEnrollmentEntity!]!
+  renameTestSeriesFolder(name: String!, nodeId: ID!): TestSeriesEntity!
+  reorderTestQuestions(questionIds: [ID!]!, rowId: ID!, testId: ID!): TestEntity!
+  restoreBankQuestion(id: ID!): BankQuestionEntity!
+  setBankQuestionStatus(id: ID!, status: QuestionStatus!): BankQuestionEntity!
+  setTestFormatStatus(id: ID!, status: TestFormatStatus!): TestFormatEntity!
+
+  """Pass a null key to remove the planner."""
+  setTestPlanner(fileName: String, key: String, testId: ID!): TestEntity!
+
+  """Pass a null key to remove the cover."""
+  setTestSeriesCover(key: String, seriesId: ID!): TestSeriesEntity!
+  setTestSeriesSchedule(input: TestSeriesScheduleInput!, nodeId: ID!): TestSeriesEntity!
+  setTestSyllabus(formatSubjectId: ID!, syllabusHtml: String, testId: ID!): TestEntity!
+
+  """
+  Queues the parse. Returns at once -- poll questionImportJob for the result, which is AWAITING_REVIEW on success and FAILED with a reason on failure.
+  """
+  startQuestionImport(jobId: ID!): QuestionImportJobEntity!
+  unpublishTest(id: ID!): TestEntity!
+  unpublishTestSeries(id: ID!): TestSeriesEntity!
+
+  """Records the prior state as a version row before writing."""
+  updateBankQuestion(id: ID!, input: UpdateBankQuestionInput!): BankQuestionEntity!
+
+  """Code is immutable — import matching and marking rules use it."""
+  updateDifficultyLevel(id: ID!, input: UpdateDifficultyInput!): DifficultyLevelEntity!
+
+  """
+  Corrects one staged row and re-runs its checks, so fixing a BLOCKING row clears it without a re-parse.
+  """
+  updateQuestionImportRow(id: ID!, input: UpdateQuestionImportRowInput!): QuestionImportRowEntity!
+
+  """
+  Kernel is immutable: changing it would reinterpret the stored answers of every existing question of this type.
+  """
+  updateQuestionType(id: ID!, input: UpdateQuestionTypeInput!): QuestionTypeDefEntity!
+  updateTaxonomy(id: ID!, input: UpdateTaxonomyInput!): TaxonomyNode!
+  updateTest(id: ID!, input: UpdateTestInput!): TestEntity!
+
+  """Replaces the whole structure. Refused once any test uses the format."""
+  updateTestFormat(id: ID!, input: SaveTestFormatInput!): TestFormatEntity!
+  updateTestSeries(id: ID!, input: UpdateTestSeriesInput!): TestSeriesEntity!
+
+  """
+  Adds or updates one solution block. Visibility defaults to AFTER_SUBMIT and is enforced server-side.
+  """
+  upsertQuestionSolution(input: UpsertSolutionInput!, questionId: ID!): QuestionSolutionEntity!
+  useTestFormatTemplate(input: UseTestFormatTemplateInput!): TestFormatEntity!
+}
+
+input PaginationInput {
+  page: Int = 1
+  pageSize: Int = 25
+
+  """One of: createdAt, updatedAt, marks. Defaults to updatedAt."""
+  sortBy: String
+
+  """asc | desc. Defaults to desc."""
+  sortDir: String
+}
+
+type PercentileBandEntity {
+  id: ID!
+  maxScore: Float!
+  minScore: Float!
+  orderIndex: Int!
+  percentile: Float!
+}
+
+input PercentileBandInput {
+  maxScore: Float!
+  minScore: Float!
+  percentile: Float!
+}
+
+type PollableOption {
+  id: ID!
+  orderIndex: Int!
+  text: String!
+}
+
+type PollableQuestionEntity {
+  chapterName: String
+  difficultyLabel: String
+  id: ID!
+  kernel: AnswerKernel!
+  options: [PollableOption!]!
+  questionText: String!
+  subjectName: String
+  subtopicName: String
+  topicName: String
+  typeLabel: String
+}
+
+type Query {
+  bankQuestion(id: ID!): BankQuestionEntity!
+
+  """Counts for the filter sidebar, honouring the current filter."""
+  bankQuestionFacets(filter: BankQuestionFilterInput): BankFacets!
+  bankQuestions(filter: BankQuestionFilterInput, pagination: PaginationInput): BankQuestionPage!
+
+  """Managed difficulty list, with the aliases import matches on."""
+  difficultyLevels(includeInactive: Boolean): [DifficultyLevelEntity!]!
+
+  """
+  Approved single- and multiple-choice questions, WITHOUT their answer key, for the live-class poll picker in the desktop app. Use this rather than bankQuestions anywhere the key is not being edited.
+  """
+  pollableQuestions(filter: BankQuestionFilterInput, limit: Int): [PollableQuestionEntity!]!
+  questionImportJob(id: ID!): QuestionImportJobEntity!
+  questionImportJobs(limit: Int): [QuestionImportJobEntity!]!
+
+  """Staged rows for one job. Filter by severity to show BLOCKING first."""
+  questionImportRows(includeDropped: Boolean, jobId: ID!, severity: String): [QuestionImportRowEntity!]!
+
+  """Admin-defined question types, each bound to an AnswerKernel."""
+  questionTypes(includeInactive: Boolean): [QuestionTypeDefEntity!]!
+
+  """
+  Subject > Chapter > Topic > Subtopic tree with per-node question counts.
+  """
+  taxonomyTree(includeInactive: Boolean): [TaxonomyNode!]!
+  test(id: ID!): TestEntity!
+  testFormat(id: ID!): TestFormatEntity!
+
+  """
+  Platform templates (JEE Main, JEE Advanced, NEET) an institute can copy.
+  """
+  testFormatTemplates: [TestFormatEntity!]!
+  testFormats(status: TestFormatStatus): [TestFormatEntity!]!
+  testSeries(id: ID!): TestSeriesEntity!
+  testSeriesEnrollments(seriesId: ID!): [TestSeriesEnrollmentEntity!]!
+  testSeriesList(status: TestSeriesStatus): [TestSeriesEntity!]!
+  tests(status: TestStatus): [TestSummaryEntity!]!
+}
+
+type QuestionFieldOptionEntity {
+  color: String
+  id: ID!
+  isActive: Boolean!
+  label: String!
+  orderIndex: Int!
+  value: String!
+  weight: Int
+}
+
+type QuestionGroupEntity {
+  id: ID!
+  passageHtml: String
+  questionCount: Int!
+  title: String
+}
+
+type QuestionImportJobEntity {
+  committedAt: DateTime
+  createdAt: DateTime!
+  failureReason: String
+  fileName: String
+  id: ID!
+  importedCount: Int!
+  parsedCount: Int!
+  questionBankId: ID
+
+  """Headers as they were understood, unmapped columns and severity counts."""
+  report: JSON
+
+  """
+  PARSING | AWAITING_REVIEW | COMMITTING | DONE | FAILED. A plain string, not an enum, because the column is.
+  """
+  status: String!
+  updatedAt: DateTime!
+}
+
+type QuestionImportRowEntity {
+  answerConfig: JSON
+  bodyHtml: String
+  chapterId: ID
+  createdId: ID
+  difficultyId: ID
+  dropped: Boolean!
+  duplicateOfId: ID
+  id: ID!
+
+  """Issues as [{ code, severity, message }]."""
+  issues: JSON
+  jobId: ID!
+  marks: Int
+  optionsJson: JSON
+
+  """What the reviewer changed, kept beside the original parse."""
+  overrides: JSON
+  questionTypeId: ID
+
+  """Cells as they were read, including unrecognised columns."""
+  raw: JSON
+  rowIndex: Int!
+
+  """OK | WARNING | BLOCKING"""
+  severity: String!
+  solutionHtml: String
+  solutionVideoUrl: String
+  subjectId: ID
+  subtopicId: ID
+  topicId: ID
+}
+
+type QuestionImportUploadEntity {
+  expiresIn: Int!
+  job: QuestionImportJobEntity!
+  key: String!
+
+  """Presigned PUT. Upload the .docx here, then start."""
+  uploadUrl: String!
+}
+
+type QuestionSolutionEntity {
+  contentHtml: String
+  createdAt: DateTime!
+  durationSec: Int
+  id: ID!
+  kind: SolutionKind!
+  language: String
+  orderIndex: Int!
+  updatedAt: DateTime!
+  videoProvider: VideoProvider
+  videoUrl: String
+  visibility: SolutionVisibility!
+}
+
+enum QuestionStatus {
+  APPROVED
+  DRAFT
+  IN_REVIEW
+  REJECTED
+  RETIRED
+}
+
+type QuestionTypeDefEntity {
+  """
+  Other spellings a Word file may use for this type. Matched case-insensitively, ignoring spaces and underscores.
+  """
+  aliases: [String!]!
+  code: String!
+  color: String
+  config: JSON
+  icon: String
+  id: ID!
+  isActive: Boolean!
+  kernel: AnswerKernel!
+  label: String!
+  layoutHint: String
+  orderIndex: Int!
+
+  """Live questions using this type. Non-zero blocks deletion."""
+  questionCount: Int!
+}
+
+"""The whole format. Saving replaces the structure."""
+input SaveTestFormatInput {
+  bands: [PercentileBandInput!]! = []
+  durationMinutes: Int!
+  instructionsHtml: String
+  name: String!
+  subjects: [TestFormatSubjectInput!]!
+}
+
+enum SolutionKind {
+  HINT
+  TEXT
+  VIDEO
+}
+
+"""
+When a solution may be revealed. A security control, not a preference: without it a student sitting a live test can fetch the answer.
+"""
+enum SolutionVisibility {
+  AFTER_SUBMIT
+  AFTER_TEST_CLOSE
+  ALWAYS
+}
+
+"""Level in the subject tree."""
+enum TaxonomyKind {
+  CHAPTER
+  SUBJECT
+  SUBTOPIC
+  TOPIC
+}
+
+type TaxonomyNode {
+  children: [TaxonomyNode!]
+  code: String
+  id: ID!
+  isActive: Boolean!
+  kind: TaxonomyKind!
+  name: String!
+  orderIndex: Int!
+  parentId: ID
+
+  """Questions referencing this node at its own level."""
+  questionCount: Int!
+}
+
+input TemplateSubjectMapInput {
+  subjectId: ID!
+
+  """The subject name as written in the template, e.g. "Biology"."""
+  templateSubjectName: String!
+}
+
+input TemplateTypeMapInput {
+  """The question type code used in the template, e.g. "NAT"."""
+  questionTypeCode: String!
+  questionTypeId: ID!
+}
+
+type TestEntity {
+  createdAt: DateTime!
+  descriptionHtml: String
+
+  """The duration in effect: the override, else the format."""
+  durationMinutes: Int!
+  durationOverride: Int
+  format: TestFormatEntity!
+  id: ID!
+  name: String!
+  plannerFileName: String
+  plannerUrl: String
+  progress: [TestRowProgressEntity!]!
+
+  """What stops publishing. Empty when it can be published."""
+  publishProblems: [String!]!
+  publishedAt: DateTime
+  questions: [TestQuestionEntity!]!
+  status: TestStatus!
+  syllabi: [TestSyllabusEntity!]!
+  updatedAt: DateTime!
+  year: Int
+}
+
+type TestFormatEntity {
+  bands: [PercentileBandEntity!]!
+  createdAt: DateTime!
+  durationMinutes: Int!
+  id: ID!
+  instructionsHtml: String
+
+  """A platform template, copied into institutes."""
+  isTemplate: Boolean!
+  locked: Boolean!
+
+  """Lowest possible score after negative marking."""
+  minScore: Float!
+  name: String!
+
+  """What stops this format being made ACTIVE. Empty when it adds up."""
+  problems: [String!]!
+  sourceTemplateId: ID
+  status: TestFormatStatus!
+  subjects: [TestFormatSubjectEntity!]!
+  templateNote: String
+
+  """Tests using this format. Non-zero locks it."""
+  testCount: Int!
+  totalMarks: Float!
+  totalQuestions: Int!
+  updatedAt: DateTime!
+}
+
+type TestFormatRowEntity {
+  attemptLimit: Int
+  id: ID!
+  kernel: AnswerKernel!
+  marksPerQuestion: Float!
+
+  """Best possible marks from this row."""
+  maxMarks: Float!
+  negativeMarks: Float!
+  orderIndex: Int!
+  partialMarking: Boolean!
+  questionCount: Int!
+  questionTypeCode: String!
+  questionTypeId: ID
+}
+
+input TestFormatRowInput {
+  """Attempt at most N of this row. Omit when every question is compulsory."""
+  attemptLimit: Int
+  marksPerQuestion: Float!
+
+  """A positive number, subtracted for a wrong answer."""
+  negativeMarks: Float!
+  partialMarking: Boolean! = false
+  questionCount: Int!
+  questionTypeId: ID!
+}
+
+type TestFormatSectionEntity {
+  id: ID!
+  instructionsHtml: String
+  name: String!
+  orderIndex: Int!
+  rows: [TestFormatRowEntity!]!
+}
+
+input TestFormatSectionInput {
+  instructionsHtml: String
+  name: String!
+  rows: [TestFormatRowInput!]!
+}
+
+"""
+DRAFT can be saved incomplete and cannot build tests. ACTIVE builds tests. ARCHIVED is hidden from new tests. A format used by any test is locked.
+"""
+enum TestFormatStatus {
+  ACTIVE
+  ARCHIVED
+  DRAFT
+}
+
+type TestFormatSubjectEntity {
+  id: ID!
+  orderIndex: Int!
+  sections: [TestFormatSectionEntity!]!
+  subjectId: ID
+  subjectName: String!
+  totalMarks: Float!
+  totalQuestions: Int!
+}
+
+input TestFormatSubjectInput {
+  sections: [TestFormatSectionInput!]!
+
+  """A SUBJECT node from the tenant's question bank."""
+  subjectId: ID!
+  totalMarks: Float!
+  totalQuestions: Int!
+}
+
+type TestPlannerUploadEntity {
+  expiresIn: Int!
+  key: String!
+  uploadUrl: String!
+}
+
+type TestQuestionEntity {
+  """Numeric, text or matching answer key. Staff only."""
+  answerConfig: JSON
+
+  """Deleted from the bank after it was picked."""
+  deleted: Boolean!
+  explanation: String
+  id: ID!
+  kernel: AnswerKernel
+
+  """
+  False when the bank question's subject or type no longer matches its row.
+  """
+  matchesRow: Boolean!
+
+  """Choice options with correctness: the answer key. Staff only."""
+  options: [TestQuestionOptionEntity!]!
+  orderIndex: Int!
+  questionId: ID!
+  questionStatus: QuestionStatus!
+  questionText: String!
+  questionTypeCode: String!
+  rowId: ID!
+}
+
+type TestQuestionOptionEntity {
+  isCorrect: Boolean!
+  text: String!
+}
+
+type TestRowProgressEntity {
+  label: String!
+  picked: Int!
+  required: Int!
+  rowId: ID!
+}
+
+type TestSeriesCoverUploadEntity {
+  expiresIn: Int!
+  fileUrl: String!
+  key: String!
+  uploadUrl: String!
+}
+
+type TestSeriesEnrollmentEntity {
+  amountPaid: Float
+  enrolledAt: DateTime!
+  id: ID!
+
+  """FREE, PAID, or MANUAL (added by an admin)."""
+  source: String!
+  userEmail: String
+  userId: ID!
+  userName: String
+}
+
+type TestSeriesEntity {
+  classLevel: String
+  coverImageUrl: String
+  createdAt: DateTime!
+  descriptionHtml: String
+  discountedPrice: Float
+  endAt: DateTime
+  enrolledCount: Int!
+  examType: String
+  folderCount: Int!
+  id: ID!
+  isPaid: Boolean!
+  name: String!
+  nodes: [TestSeriesNodeEntity!]!
+  price: Float
+
+  """What stops publishing. Empty when it can be published."""
+  problems: [String!]!
+  publishedAt: DateTime
+  startAt: DateTime
+  status: TestSeriesStatus!
+  targetYear: Int
+  testCount: Int!
+  updatedAt: DateTime!
+}
+
+"""A folder or a linked test. The admin builds the tree from parentId."""
+type TestSeriesNodeEntity {
+  availableFrom: DateTime
+  availableTo: DateTime
+  id: ID!
+  kind: TestSeriesNodeKind!
+
+  """The folder's name, or the linked test's name."""
+  name: String!
+  orderIndex: Int!
+  parentId: ID
+
+  """What is wrong with this test's place in the series."""
+  problems: [String!]!
+  resultAt: DateTime
+
+  """Opened for students in a published series; its past is fixed."""
+  started: Boolean!
+  testDurationMinutes: Int
+  testId: ID
+  testMarks: Float
+  testQuestions: Int
+  testStatus: TestStatus
+  testYear: Int
+}
+
+enum TestSeriesNodeKind {
+  FOLDER
+  TEST
+}
+
+"""Send all three, or all null to clear the schedule."""
+input TestSeriesScheduleInput {
+  availableFrom: DateTime
+  availableTo: DateTime
+  resultAt: DateTime
+}
+
+"""
+DRAFT is being built. PUBLISHED is visible to students inside its window. UNPUBLISHED was published and is hidden again.
+"""
+enum TestSeriesStatus {
+  DRAFT
+  PUBLISHED
+  UNPUBLISHED
+}
+
+"""
+DRAFT is editable. PUBLISHED freezes its questions. ARCHIVED is retired.
+"""
+enum TestStatus {
+  ARCHIVED
+  DRAFT
+  PUBLISHED
+}
+
+type TestSummaryEntity {
+  createdAt: DateTime!
+  durationMinutes: Int!
+  formatId: ID!
+  formatName: String!
+  hasDescription: Boolean!
+  id: ID!
+  name: String!
+  picked: Int!
+  plannerFileName: String
+  publishedAt: DateTime
+
+  """A draft with everything filled in, ready to publish."""
+  ready: Boolean!
+  required: Int!
+
+  """Test series this test is linked into."""
+  seriesCount: Int!
+  status: TestStatus!
+  subjects: [String!]!
+
+  """Subjects with a written syllabus."""
+  syllabusDone: Int!
+  totalMarks: Float!
+  updatedAt: DateTime!
+  year: Int
+}
+
+type TestSyllabusEntity {
+  formatSubjectId: ID!
+  subjectName: String!
+  syllabusHtml: String
+}
+
+input UpdateBankQuestionInput {
+  answerConfig: JSON
+
+  """Recorded on the version row for the audit trail."""
+  changeNote: String
+  chapterId: ID
+  difficultyId: ID
+  explanation: String
+  groupId: ID
+
+  """Marks for a correct answer."""
+  marks: Int
+  mcqOptions: [BankMCQOptionInput!]
+  mediaUrl: String
+  questionText: String
+  questionTypeId: ID
+  subjectId: ID
+
+  """Optional fourth level. A question filed only to Topic is valid."""
+  subtopicId: ID
+  topicId: ID
+}
+
+input UpdateDifficultyInput {
+  """Other spellings a Word file may use for this."""
+  aliases: [String!]
+  color: String
+  isActive: Boolean
+  label: String
+  orderIndex: Int
+}
+
+input UpdateQuestionImportRowInput {
+  answerConfig: JSON
+  bodyHtml: String
+  chapterId: ID
+  difficultyId: ID
+  marks: Int
+
+  """Choice options as [{ text, isCorrect }]."""
+  optionsJson: JSON
+  questionTypeId: ID
+  solutionHtml: String
+  subjectId: ID
+  subtopicId: ID
+  topicId: ID
+}
+
+input UpdateQuestionTypeInput {
+  """Other spellings a Word file may use for this."""
+  aliases: [String!]
+  color: String
+  config: JSON
+  icon: String
+  isActive: Boolean
+  label: String
+  layoutHint: String
+  orderIndex: Int
+}
+
+input UpdateTaxonomyInput {
+  code: String
+  isActive: Boolean
+  name: String
+  orderIndex: Int
+}
+
+"""
+Only the fields sent are changed. Send null to clear year, description or duration.
+"""
+input UpdateTestInput {
+  descriptionHtml: String
+  durationMinutes: Int
+  name: String
+  year: Int
+}
+
+"""Only the fields sent are changed. Send null to clear one."""
+input UpdateTestSeriesInput {
+  classLevel: String
+  descriptionHtml: String
+
+  """What students pay when set. At most the price."""
+  discountedPrice: Float
+  endAt: DateTime
+  examType: String
+  isPaid: Boolean
+  name: String
+  price: Float
+  startAt: DateTime
+  targetYear: Int
+}
+
+input UpsertSolutionInput {
+  contentHtml: String
+  durationSec: Int
+
+  """Omit to create."""
+  id: String
+  kind: SolutionKind!
+  language: String
+  orderIndex: Int
+  videoProvider: VideoProvider
+  videoUrl: String
+  visibility: SolutionVisibility
+}
+
+input UseTestFormatTemplateInput {
+  """Defaults to the template's name."""
+  name: String
+
+  """Only needed where a template subject name has no match in the bank."""
+  subjectMap: [TemplateSubjectMapInput!]
+  templateId: ID!
+
+  """Only needed where a template type code has no match."""
+  typeMap: [TemplateTypeMapInput!]
+}
+
+enum VideoProvider {
+  EXTERNAL
+  UPLOADED
+  VIMEO
+  YOUTUBE
+}
