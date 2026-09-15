@@ -144,6 +144,15 @@ export class TestSeriesService {
     if (e.source === 'PAID') {
       throw new ConflictException('This student paid for the series, so they cannot be removed here.');
     }
+    // Removing them now would take away results they have already earned.
+    const attempted = await this.prisma.examAttempt.count({
+      where: { userId: e.userId, tenantId, test: { seriesNodes: { some: { seriesId: e.seriesId } } } },
+    });
+    if (attempted > 0) {
+      throw new ConflictException(
+        'This student has already taken a test in this series, so removing them would hide their results.',
+      );
+    }
     await this.prisma.testSeriesEnrollment.delete({ where: { id: enrollmentId } });
     return this.enrollments(e.seriesId, tenantId);
   }

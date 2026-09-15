@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
+import { RedisService } from 'src/common/services/redis.service';
 import { SessionService } from './session.service';
 
 /**
@@ -10,7 +11,7 @@ import { SessionService } from './session.service';
 @Global()
 @Module({
   imports: [JwtModule.register({})],
-  providers: [SessionService],
-  exports: [SessionService],
+  providers: [SessionService, RedisService],
+  exports: [SessionService, RedisService],
 })
 export class AuthModule {}

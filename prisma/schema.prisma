@@ -322,12 +322,11 @@ model Question {
 
   normalizedHash String?
 
-  solutions QuestionSolution[]
-  usages    QuestionUsage[]
-  versions  QuestionVersion[]
+  solutions     QuestionSolution[]
+  usages        QuestionUsage[]
+  versions      QuestionVersion[]
   /// Places this question is picked into a test paper (draft or published).
   testQuestions TestQuestion[]
-
 
   @@index([tenantId, testId])
   @@index([testId, orderIndex])
@@ -692,9 +691,14 @@ model Test {
   deletedAt   DateTime?
   deletedById String?
 
-  syllabi   TestSubjectSyllabus[]
-  questions TestQuestion[]
-  seriesNodes TestSeriesNode[]
+  syllabi      TestSubjectSyllabus[]
+  questions    TestQuestion[]
+  seriesNodes  TestSeriesNode[]
+  examAttempts ExamAttempt[]
+
+  /// Encrypted student paper (no answer keys) in object storage, and its AES key.
+  paperKey    String?
+  paperSecret String?
 
   @@index([tenantId, status])
   @@index([formatId])
@@ -748,60 +752,60 @@ enum TestSeriesNodeKind {
 /// linked, never copied: one test can sit in many series and its attempts and
 /// results always belong to the test, so they add up across every series.
 model TestSeries {
-  id              String           @id @default(uuid())
+  id              String  @id @default(uuid())
   tenantId        String
   name            String
   classLevel      String?
   examType        String?
   targetYear      Int?
-  descriptionHtml String?          @db.Text
+  descriptionHtml String? @db.Text
   /// Storage key of the cover image shown on the store and listing pages.
   coverImageKey   String?
 
-  isPaid          Boolean          @default(false)
-  price           Decimal?         @db.Decimal(10, 2)
+  isPaid          Boolean  @default(false)
+  price           Decimal? @db.Decimal(10, 2)
   /// What students actually pay when set.
-  discountedPrice Decimal?         @db.Decimal(10, 2)
+  discountedPrice Decimal? @db.Decimal(10, 2)
 
   /// Students can see the series only between these.
-  startAt         DateTime?
-  endAt           DateTime?
+  startAt DateTime?
+  endAt   DateTime?
 
-  status          TestSeriesStatus @default(DRAFT)
-  publishedAt     DateTime?
-  publishedById   String?
+  status        TestSeriesStatus @default(DRAFT)
+  publishedAt   DateTime?
+  publishedById String?
 
-  createdById     String
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  deletedAt       DateTime?
-  deletedById     String?
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  deletedById String?
 
-  nodes           TestSeriesNode[]
-  enrollments     TestSeriesEnrollment[]
+  nodes       TestSeriesNode[]
+  enrollments TestSeriesEnrollment[]
 
   @@index([tenantId, status])
 }
 
 /// A folder or a test inside a series. Test nodes carry their own schedule.
 model TestSeriesNode {
-  id            String             @id @default(uuid())
-  seriesId      String
-  series        TestSeries         @relation(fields: [seriesId], references: [id], onDelete: Cascade)
-  parentId      String?
-  parent        TestSeriesNode?    @relation("TestSeriesTree", fields: [parentId], references: [id], onDelete: Cascade)
-  children      TestSeriesNode[]   @relation("TestSeriesTree")
-  kind          TestSeriesNodeKind
+  id       String             @id @default(uuid())
+  seriesId String
+  series   TestSeries         @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  parentId String?
+  parent   TestSeriesNode?    @relation("TestSeriesTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children TestSeriesNode[]   @relation("TestSeriesTree")
+  kind     TestSeriesNodeKind
   /// Folder name. Test nodes show the test's own name.
-  name          String?
-  testId        String?
-  test          Test?              @relation(fields: [testId], references: [id])
+  name     String?
+  testId   String?
+  test     Test?              @relation(fields: [testId], references: [id])
 
   availableFrom DateTime?
   availableTo   DateTime?
   resultAt      DateTime?
-  orderIndex    Int                @default(0)
-  createdAt     DateTime           @default(now())
+  orderIndex    Int       @default(0)
+  createdAt     DateTime  @default(now())
 
   @@unique([seriesId, testId])
   @@index([seriesId, parentId, orderIndex])
@@ -820,8 +824,207 @@ model TestSeriesEnrollment {
   /// FREE or PAID.
   source     String     @default("FREE")
   amountPaid Decimal?   @db.Decimal(10, 2)
+  /// The main backend order that paid for this enrollment.
+  purchaseId String?
   enrolledAt DateTime   @default(now())
 
   @@unique([seriesId, userId])
   @@index([tenantId, userId])
+}
+
+// ─── Exam attempts ───────────────────────────────────────────────────────────
+
+enum ExamAttemptStatus {
+  IN_PROGRESS
+  SUBMITTED
+}
+
+/// One student's attempt at a test. Keyed by test, so results add up across every series.
+model ExamAttempt {
+  id           String  @id @default(uuid())
+  tenantId     String
+  testId       String
+  test         Test    @relation(fields: [testId], references: [id])
+  seriesId     String?
+  seriesNodeId String?
+  userId       String
+  userName     String?
+
+  status       ExamAttemptStatus @default(IN_PROGRESS)
+  startedAt    DateTime
+  deadline     DateTime
+  resultAt     DateTime?
+  submittedAt  DateTime?
+  /// CLIENT (student or device auto-submit) or SERVER (deadline sweeper, limits).
+  submittedBy  String?
+  /// MANUAL, AUTO_TIME, VIOLATIONS or REFRESHES.
+  submitReason String?
+
+  violations     Int  @default(0)
+  lastViolationT Int?
+  refreshes      Int  @default(0)
+
+  /// Highest event seq stored, and the hash chain head it ends on.
+  lastSeq        Int     @default(0)
+  chainHead      String  @default("0000000000000000000000000000000000000000000000000000000000000000")
+  lateSync       Boolean @default(false)
+  needsRecompute Boolean @default(false)
+
+  /// Batches the server refused (gap, broken chain, too late, after submit) and the last reason.
+  rejectedBatches     Int     @default(0)
+  lastRejectReason    String?
+  /// Frozen at start: class, target year, city, state, course ids, device type.
+  cohort              Json?
+  /// Browser, OS, screen, time zone reported by the device.
+  device              Json?
+  timeUsedMs          Int?
+  activeMs            Int?
+  offlineMs           Int?
+  outsideFullscreenMs Int?
+  instructionsMs      Int?
+  copyAttempts        Int?
+
+  score    Float?
+  maxMarks Float?
+
+  /// Stamped by the analytics job; null until the cohort is big enough (MIN_COHORT).
+  rank        Int?
+  rankOutOf   Int?
+  percentile  Float?
+  analyticsAt DateTime?
+
+  /// "Points to be Noted": what the student will do differently next time.
+  studentNote   String?   @db.Text
+  noteUpdatedAt DateTime?
+  summary       Json?
+  finalizedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  batches   ExamEventBatch[]
+  questions ExamAttemptQuestion[]
+
+  @@unique([testId, userId])
+  @@index([tenantId, testId, status])
+  @@index([status, deadline])
+}
+
+/// Events arrive in batches; one row per batch keeps the table small.
+model ExamEventBatch {
+  id         String      @id @default(uuid())
+  attemptId  String
+  attempt    ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  fromSeq    Int
+  toSeq      Int
+  events     Json
+  receivedAt DateTime    @default(now())
+
+  @@unique([attemptId, fromSeq])
+}
+
+/// Per-question facts of a finished attempt: what analytics read.
+model ExamAttemptQuestion {
+  id                    String      @id @default(uuid())
+  attemptId             String
+  attempt               ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  questionId            String
+  subjectName           String
+  sectionId             String?
+  orderIndex            Int
+  chapterId             String?
+  topicId               String?
+  difficulty            String?
+  status                String
+  result                String
+  marks                 Float
+  evaluated             Boolean
+  timeMs                Int
+  hiddenMs              Int
+  visits                Int
+  firstSeenMs           Int?
+  firstAnsweredMs       Int?
+  answerChanges         Int
+  answer                Json?
+  questionTypeCode      String?
+  sectionName           String?
+  subtopicId            String?
+  chapterName           String?
+  topicName             String?
+  subtopicName          String?
+  maxMarks              Float?
+  negativeMarks         Float?
+  lastAnsweredMs        Int?
+  activeMs              Int?
+  idleMs                Int?
+  selections            Int?
+  /// Every visit [{ enterMs, leaveMs, hiddenMs }] for the solving flow.
+  visitTimeline         Json?
+  /// Every saved answer with its result [{ t, answer, result }].
+  answerHistory         Json?
+  changedCorrectToWrong Boolean?
+  changedWrongToCorrect Boolean?
+  /// A selection left unsaved at the end, and what it would have scored.
+  finalDraft            Json?
+  draftResult           String?
+  bookmarked            Boolean?
+  reported              Boolean?
+  maxScrollPct          Int?
+
+  @@unique([attemptId, questionId])
+  @@index([questionId])
+}
+
+/// Everything the result screens need that is true of the whole test rather than
+/// one attempt. Recomputed as new batches take the same paper, so it always
+/// carries the moment it was computed.
+model TestAnalytics {
+  tenantId String
+  testId   String @id
+
+  computedAt   DateTime @default(now())
+  attemptCount Int      @default(0)
+
+  meanScore   Float?
+  medianScore Float?
+  topScore    Float?
+  top10Cutoff Float?
+  top25Cutoff Float?
+
+  /// Averages per subject for everyone, the top 10% and the top 25%.
+  subjectStats    Json?
+  difficultyStats Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+}
+
+/// How the whole cohort did on one question: the class accuracy and the timings
+/// the behaviour classifier and the Question-wise Review compare against.
+model TestQuestionStat {
+  id       String @id @default(uuid())
+  tenantId String
+
+  testId     String
+  questionId String
+
+  attempts   Int @default(0)
+  correct    Int @default(0)
+  incorrect  Int @default(0)
+  unanswered Int @default(0)
+
+  avgTimeMs        Int?
+  /// The threshold the behaviour classifier uses: how long the people who got it right took.
+  avgTimeCorrectMs Int?
+
+  topperAttempts  Int?
+  topperCorrect   Int?
+  topperAvgTimeMs Int?
+
+  computedAt DateTime @default(now())
+
+  @@unique([testId, questionId])
+  @@index([testId])
 }

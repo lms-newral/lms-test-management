@@ -7,6 +7,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { RedisService } from 'src/common/services/redis.service';
 import { JwtService } from '@nestjs/jwt';
 import type { Request } from 'express';
 import {
@@ -68,6 +69,11 @@ const header = (req: Request, name: string): string => {
  * The answer is cached for SESSION_CACHE_SECONDS (default 60), keyed on the
  * token plus the headers that change the outcome. A revoked session therefore
  * keeps working here for at most that long.
+ *
+ * The cache has two tiers: this process's map, then Redis shared by every
+ * process. Without the shared tier a student entering an exam costs one `me`
+ * call per API process their requests land on, and 100,000 students starting
+ * together is exactly the load the main backend would feel.
  */
 @Injectable()
 export class SessionService {
@@ -82,6 +88,7 @@ export class SessionService {
 
   constructor(
     private readonly jwt: JwtService,
+    private readonly redis: RedisService,
     config: ConfigService,
   ) {
     this.mainApiUrl = config.get<string>(
@@ -94,6 +101,12 @@ export class SessionService {
     const seconds = Number(config.get('SESSION_CACHE_SECONDS', 60));
     this.ttlMs =
       (Number.isFinite(seconds) && seconds >= 0 ? seconds : 60) * 1000;
+  }
+
+  private remember(key: string, user: AuthenticatedUser) {
+    if (this.ttlMs <= 0) return;
+    if (this.cache.size > 10_000) this.pruneExpired();
+    this.cache.set(key, { user, expiresAt: Date.now() + this.ttlMs });
   }
 
   async resolve(req: Request): Promise<AuthenticatedUser> {
@@ -123,13 +136,20 @@ export class SessionService {
     const cached = this.cache.get(key);
     if (cached && cached.expiresAt > Date.now()) return cached.user;
 
+    // Shared tier: another process may already have asked within this window.
+    const shared = this.ttlMs > 0 ? await this.redis.getJson<AuthenticatedUser>(this.redis.key('session', key)) : null;
+    if (shared) {
+      this.remember(key, shared);
+      return shared;
+    }
+
     const user = await this.askMainBackend(req);
     if (user.userId !== payload.userId || user.tenantId !== payload.tenantId) {
       throw new UnauthorizedException('Session does not match this token');
     }
 
-    if (this.cache.size > 10_000) this.pruneExpired();
-    this.cache.set(key, { user, expiresAt: Date.now() + this.ttlMs });
+    this.remember(key, user);
+    void this.redis.setJson(this.redis.key('session', key), user, this.ttlMs / 1000);
     return user;
   }
 
@@ -180,6 +200,37 @@ export class SessionService {
       name: [u.firstName, u.lastName].filter(Boolean).join(' ') || u.email,
       role: String(u.role).toLowerCase(),
     };
+  }
+
+  /**
+   * City, state and enrolled course ids of the signed-in student, from the main
+   * backend, for the cohort frozen on an exam attempt. Never throws: a missing
+   * profile must not stop a student from starting a test.
+   */
+  async studentCohortSource(req: Request): Promise<{ city: string | null; state: string | null; courseIds: string[] }> {
+    try {
+      const res = await fetch(this.mainApiUrl, {
+        method: 'POST',
+        headers: this.headersFor(req),
+        body: JSON.stringify({
+          query: 'query ExamCohortSource { myStudentInfo { profile { city state } } myEnrollments { enrollments { courseId } } }',
+        }),
+        signal: AbortSignal.timeout(4000),
+      });
+      const body = (await res.json()) as {
+        data?: {
+          myStudentInfo?: { profile?: { city?: string | null; state?: string | null } | null } | null;
+          myEnrollments?: { enrollments?: { courseId: string }[] } | null;
+        } | null;
+      };
+      return {
+        city: body.data?.myStudentInfo?.profile?.city ?? null,
+        state: body.data?.myStudentInfo?.profile?.state ?? null,
+        courseIds: (body.data?.myEnrollments?.enrollments ?? []).map((e) => e.courseId),
+      };
+    } catch {
+      return { city: null, state: null, courseIds: [] };
+    }
   }
 
   private headersFor(req: Request): Record<string, string> {

@@ -1,0 +1,35 @@
+-- AlterTable
+ALTER TABLE "ExamAttempt" ADD COLUMN     "activeMs" INTEGER,
+ADD COLUMN     "cohort" JSONB,
+ADD COLUMN     "copyAttempts" INTEGER,
+ADD COLUMN     "device" JSONB,
+ADD COLUMN     "instructionsMs" INTEGER,
+ADD COLUMN     "lastRejectReason" TEXT,
+ADD COLUMN     "offlineMs" INTEGER,
+ADD COLUMN     "outsideFullscreenMs" INTEGER,
+ADD COLUMN     "rejectedBatches" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     "timeUsedMs" INTEGER;
+
+-- AlterTable
+ALTER TABLE "ExamAttemptQuestion" ADD COLUMN     "activeMs" INTEGER,
+ADD COLUMN     "answerHistory" JSONB,
+ADD COLUMN     "bookmarked" BOOLEAN,
+ADD COLUMN     "changedCorrectToWrong" BOOLEAN,
+ADD COLUMN     "changedWrongToCorrect" BOOLEAN,
+ADD COLUMN     "chapterName" TEXT,
+ADD COLUMN     "draftResult" TEXT,
+ADD COLUMN     "finalDraft" JSONB,
+ADD COLUMN     "idleMs" INTEGER,
+ADD COLUMN     "lastAnsweredMs" INTEGER,
+ADD COLUMN     "maxMarks" DOUBLE PRECISION,
+ADD COLUMN     "maxScrollPct" INTEGER,
+ADD COLUMN     "negativeMarks" DOUBLE PRECISION,
+ADD COLUMN     "questionTypeCode" TEXT,
+ADD COLUMN     "reported" BOOLEAN,
+ADD COLUMN     "sectionName" TEXT,
+ADD COLUMN     "selections" INTEGER,
+ADD COLUMN     "subtopicId" TEXT,
+ADD COLUMN     "subtopicName" TEXT,
+ADD COLUMN     "topicName" TEXT,
+ADD COLUMN     "visitTimeline" JSONB;
+

@@ -485,7 +485,8 @@ export class TestsService {
       this.prisma.questionUsage.deleteMany({ where: { usedInType: UsageType.TEST, usedInId: id } }),
       this.prisma.test.update({
         where: { id },
-        data: { status: TestStatus.DRAFT, publishedAt: null, publishedById: null },
+        // The student paper is rebuilt on the next publish.
+        data: { status: TestStatus.DRAFT, publishedAt: null, publishedById: null, paperKey: null, paperSecret: null },
       }),
     ]);
     return this.findOne(id, tenantId);
@@ -577,8 +578,8 @@ export class TestsService {
    * the exam player is built, so nothing can have been attempted yet. This is
    * the single place that must change when attempts exist.
    */
-  private hasAttempts(_testId: string): Promise<boolean> {
-    return Promise.resolve(false);
+  private async hasAttempts(testId: string): Promise<boolean> {
+    return (await this.prisma.examAttempt.count({ where: { testId } })) > 0;
   }
 
   private async toEntity(t: TestWithDetail): Promise<TestEntity> {

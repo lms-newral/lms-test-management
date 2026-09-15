@@ -14,7 +14,8 @@
     "test:bank": "node test/question-bank/docx-parser.test.js && node test/question-bank/taxonomy-coherence.test.js",
     "lint": "eslint \"{src,test}/**/*.ts\"",
     "seed:format-templates": "ts-node -T prisma/scripts/seed-test-format-templates.ts",
-    "test:tests": "node test/tests/test-format-logic.test.js && node test/tests/publish-rules.test.js && node test/tests/test-series-rules.test.js"
+    "test:tests": "node test/tests/test-format-logic.test.js && node test/tests/publish-rules.test.js && node test/tests/test-series-rules.test.js",
+    "test:exam": "node test/exam/attempt-replay.test.js && node test/exam/attempt-scoring.test.js && node test/exam/attempt-clock.test.js && node test/exam/attempt-proctor.test.js && node test/exam/attempt-ingest.test.js && node test/exam/attempt-review.test.js && node test/exam/exam-keys.test.js && node test/exam/ingest-entry.test.js && node test/exam/analytics-rank.test.js && node test/exam/analytics-summary.test.js && node test/exam/analytics-compare.test.js && node test/exam/analytics-behaviour.test.js && node test/exam/analytics-improvement.test.js && node test/exam/analytics-time.test.js && node test/exam/analytics-flow.test.js && node test/exam/analytics-proctoring.test.js && node test/exam/result-extras.test.js"
   },
   "dependencies": {
     "@apollo/server": "^5.1.0",

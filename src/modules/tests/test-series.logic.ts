@@ -113,11 +113,18 @@ export function startedEditProblem(current: Schedule, next: Schedule, now: Date)
   if (!next.availableFrom || next.availableFrom.getTime() !== current.availableFrom.getTime()) {
     return 'This test has already opened for students, so its opening time cannot change.';
   }
-  if (current.availableTo && (!next.availableTo || next.availableTo < current.availableTo)) {
-    return 'This test has already opened, so its closing time can only move later.';
+  // Closing early is allowed: a student already writing keeps the deadline fixed when they started.
+  if (current.availableTo && !next.availableTo) {
+    return 'This test has already opened, so it needs a closing time.';
   }
-  if (current.resultAt && (!next.resultAt || next.resultAt < current.resultAt)) {
-    return 'This test has already opened, so its result time can only move later.';
+  if (next.availableTo && next.availableTo < now) {
+    return 'That closing time has already passed. Pick a time from now on.';
+  }
+  if (current.resultAt && !next.resultAt) {
+    return 'This test has already opened, so it needs a result time.';
+  }
+  if (next.resultAt && next.resultAt < now) {
+    return 'That result time has already passed. Pick a time from now on.';
   }
   return null;
 }
@@ -167,4 +174,57 @@ export function subtreeIds(nodes: TreeNode[], rootId: string): string[] {
     for (const n of nodes) if (n.parentId === ids[i]) ids.push(n.id);
   }
   return ids;
+}
+
+// ─── Students ────────────────────────────────────────────────────────────────
+
+export type TestState = 'NOT_SCHEDULED' | 'UPCOMING' | 'LIVE' | 'AWAITING_RESULT' | 'RESULT_OUT';
+
+/** Students see a series only while it is published and inside its window. */
+export function seriesVisible(
+  s: { status: string; startAt: Date | null; endAt: Date | null },
+  now: Date,
+): boolean {
+  return s.status === 'PUBLISHED' && !!s.startAt && !!s.endAt && s.startAt <= now && now <= s.endAt;
+}
+
+/**
+ * Whether a student may look at a series: anyone while it is on sale, and an
+ * enrolled student for good once it has been published — their results,
+ * solutions and notes must not vanish when the sale window closes.
+ */
+export function seriesReadable(
+  s: { status: string; startAt: Date | null; endAt: Date | null; publishedAt?: Date | null },
+  now: Date,
+  enrolled: boolean,
+): boolean {
+  if (seriesVisible(s, now)) return true;
+  return enrolled && !!s.publishedAt;
+}
+
+/** Where a scheduled test is for students right now. */
+export function testState(s: Schedule, now: Date): TestState {
+  if (!s.availableFrom || !s.availableTo || !s.resultAt) return 'NOT_SCHEDULED';
+  if (now < s.availableFrom) return 'UPCOMING';
+  if (now < s.availableTo) return 'LIVE';
+  if (now < s.resultAt) return 'AWAITING_RESULT';
+  return 'RESULT_OUT';
+}
+
+/** Why a student cannot join a series for free, or null. */
+export function enrollProblem(
+  s: { status: string; startAt: Date | null; endAt: Date | null; isPaid: boolean },
+  now: Date,
+  alreadyEnrolled: boolean,
+): string | null {
+  if (!seriesVisible(s, now)) return 'This test series is not available right now.';
+  if (alreadyEnrolled) return 'You are already enrolled in this test series.';
+  if (s.isPaid) return 'This is a paid test series. Buy it to get access.';
+  return null;
+}
+
+/** What a student pays for a series: the discounted price when set. */
+export function payableOf(s: { isPaid: boolean; price: number | null; discountedPrice: number | null }): number {
+  if (!s.isPaid) return 0;
+  return s.discountedPrice ?? s.price ?? 0;
 }

@@ -12,6 +12,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { QuestionBankModule } from './modules/question-bank/question-bank.module';
 import { QuestionImportModule } from './modules/question-bank/import/question-import.module';
 import { TestsModule } from './modules/tests/tests.module';
+import { ExamModule } from './modules/exam/exam.module';
 import { GqlThrottlerGuard } from './common/guards/gql-throttler.guard';
 import { GqlAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
@@ -65,6 +66,7 @@ const getPositiveNumberConfig = (
     QuestionBankModule,
     QuestionImportModule,
     TestsModule,
+    ExamModule,
   ],
   providers: [
     // Order matters: global guards run in this order. Authentication must have

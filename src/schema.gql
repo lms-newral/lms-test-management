@@ -203,6 +203,50 @@ type DifficultyLevelEntity {
   questionCount: Int!
 }
 
+type ExamActionEntity {
+  count: Int
+  max: Int
+  message: String
+  reason: String
+
+  """NONE, REFRESH_NOTICE or AUTO_SUBMIT."""
+  type: String!
+}
+
+"""Everything the exam screen needs. Never contains answer keys."""
+type ExamSessionEntity {
+  action: ExamActionEntity!
+  attemptId: ID!
+  candidateName: String!
+  chainHead: String!
+  deadline: DateTime!
+
+  """Highest event seq the server has stored."""
+  lastSeq: Int!
+  maxRefreshes: Int!
+  maxWarnings: Int!
+
+  """AES-GCM key for the paper (IN_PROGRESS only)."""
+  paperSecret: String
+
+  """Encrypted paper download (IN_PROGRESS only)."""
+  paperUrl: String
+  refreshes: Int!
+
+  """Server clock, for the countdown."""
+  serverTime: DateTime!
+  startedAt: DateTime!
+
+  """IN_PROGRESS or SUBMITTED."""
+  status: String!
+  submitReason: String
+  testName: String!
+
+  """Signs event uploads (x-attempt-token)."""
+  token: String!
+  violations: Int!
+}
+
 type FacetCount {
   count: Int!
   key: String!
@@ -277,6 +321,14 @@ type Mutation {
   duplicateTest(id: ID!): TestEntity!
   duplicateTestFormat(id: ID!, name: String): TestFormatEntity!
 
+  """Joins a free series. Paid series are bought through the main backend."""
+  enrollFreeTestSeries(seriesId: ID!): StudentTestSeriesEntity!
+
+  """
+  PROCEED on the instructions page, or reopening the exam. Re-entering a running attempt counts as a refresh.
+  """
+  enterExam(nodeId: ID!): ExamSessionEntity!
+
   """parentId null is the top level."""
   moveTestSeriesNode(nodeId: ID!, orderIndex: Int!, parentId: ID): TestSeriesEntity!
   publishTest(id: ID!): TestEntity!
@@ -289,6 +341,9 @@ type Mutation {
   renameTestSeriesFolder(name: String!, nodeId: ID!): TestSeriesEntity!
   reorderTestQuestions(questionIds: [ID!]!, rowId: ID!, testId: ID!): TestEntity!
   restoreBankQuestion(id: ID!): BankQuestionEntity!
+
+  """Save your "Points to be Noted" on a submitted test."""
+  saveExamNote(nodeId: ID!, note: String!): JSON!
   setBankQuestionStatus(id: ID!, status: QuestionStatus!): BankQuestionEntity!
   setTestFormatStatus(id: ID!, status: TestFormatStatus!): TestFormatEntity!
 
@@ -334,6 +389,15 @@ type Mutation {
   """
   upsertQuestionSolution(input: UpsertSolutionInput!, questionId: ID!): QuestionSolutionEntity!
   useTestFormatTemplate(input: UseTestFormatTemplateInput!): TestFormatEntity!
+}
+
+type MyExamAttemptEntity {
+  attemptId: ID!
+  deadline: DateTime!
+  startedAt: DateTime!
+  status: String!
+  submitReason: String
+  submittedAt: DateTime
 }
 
 input PaginationInput {
@@ -390,6 +454,21 @@ type Query {
   """Managed difficulty list, with the aliases import matches on."""
   difficultyLevels(includeInactive: Boolean): [DifficultyLevelEntity!]!
 
+  """Stored events from fromSeq, to restore an attempt on a new device."""
+  examAttemptEvents(attemptId: ID!, fromSeq: Int! = 1): [JSON!]!
+
+  """Your result and analysis. Opens at the result time set for the test."""
+  examResult(nodeId: ID!): JSON!
+
+  """
+  View solution: key, solutions and your answers. Only after the result time.
+  """
+  examReview(nodeId: ID!): JSON!
+  myExamAttempt(nodeId: ID!): MyExamAttemptEntity
+
+  """Series the student is enrolled in."""
+  myTestSeries: [StudentTestSeriesEntity!]!
+
   """
   Approved single- and multiple-choice questions, WITHOUT their answer key, for the live-class poll picker in the desktop app. Use this rather than bankQuestions anywhere the key is not being edited.
   """
@@ -404,10 +483,25 @@ type Query {
   questionTypes(includeInactive: Boolean): [QuestionTypeDefEntity!]!
 
   """
+  One student's full analysis, with the integrity panel. Admins do not wait for the result time.
+  """
+  studentExamResult(attemptId: ID!): JSON!
+
+  """One student's attempts across a series, in schedule order."""
+  studentSeriesAttempts(seriesId: ID!, userId: ID!): JSON!
+  studentTestSeries(id: ID!): StudentTestSeriesEntity!
+
+  """Series open to students right now."""
+  studentTestSeriesList: [StudentTestSeriesEntity!]!
+
+  """
   Subject > Chapter > Topic > Subtopic tree with per-node question counts.
   """
   taxonomyTree(includeInactive: Boolean): [TaxonomyNode!]!
   test(id: ID!): TestEntity!
+
+  """Everyone who attempted a scheduled test, best first."""
+  testAttempts(nodeId: ID!, search: String, skip: Int! = 0, take: Int! = 50): JSON!
   testFormat(id: ID!): TestFormatEntity!
 
   """
@@ -564,6 +658,86 @@ enum SolutionVisibility {
   AFTER_SUBMIT
   AFTER_TEST_CLOSE
   ALWAYS
+}
+
+type StudentSeriesNodeEntity {
+  id: ID!
+  kind: TestSeriesNodeKind!
+  name: String!
+  orderIndex: Int!
+  parentId: ID
+  test: StudentSeriesTestEntity
+}
+
+type StudentSeriesTestEntity {
+  """Your attempt at this test, if any: IN_PROGRESS or SUBMITTED."""
+  attemptStatus: String
+  availableFrom: DateTime!
+  availableTo: DateTime!
+  durationMinutes: Int!
+  instructionsHtml: String
+  marking: [StudentTestMarkingEntity!]!
+  resultAt: DateTime!
+
+  """UPCOMING, LIVE, AWAITING_RESULT or RESULT_OUT at serverTime."""
+  state: String!
+  subjects: [StudentTestSubjectEntity!]!
+  testId: ID!
+  totalMarks: Float!
+  totalQuestions: Int!
+}
+
+type StudentTestMarkingEntity {
+  """Attempt any N of these."""
+  attemptLimit: Int
+  marksPerQuestion: Float!
+  negativeMarks: Float!
+  partialMarking: Boolean!
+  questionCount: Int!
+  questionTypeCode: String!
+  sectionName: String!
+  subjectName: String!
+}
+
+type StudentTestSeriesEntity {
+  classLevel: String
+  completedCount: Int!
+  coverImageUrl: String
+  descriptionHtml: String
+  discountedPrice: Float
+  endAt: DateTime!
+  enrolledAt: DateTime
+  examType: String
+  folderCount: Int!
+  id: ID!
+  isEnrolled: Boolean!
+  isPaid: Boolean!
+  liveCount: Int!
+  name: String!
+
+  """When the next upcoming test opens."""
+  nextTestAt: DateTime
+
+  """Folders and scheduled tests; empty in lists."""
+  nodes: [StudentSeriesNodeEntity!]!
+
+  """What the student pays: the discounted price when set, 0 when free."""
+  payable: Float!
+  price: Float
+
+  """Server clock, so countdowns do not trust the device clock."""
+  serverTime: DateTime!
+  startAt: DateTime!
+  targetYear: Int
+  testCount: Int!
+  upcomingCount: Int!
+}
+
+type StudentTestSubjectEntity {
+  marks: Float!
+  name: String!
+  questions: Int!
+  syllabusHtml: String
 }
 
 """Level in the subject tree."""
