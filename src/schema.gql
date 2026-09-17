@@ -461,7 +461,7 @@ type Query {
   examResult(nodeId: ID!): JSON!
 
   """
-  View solution: key, solutions and your answers. Only after the result time.
+  View solution: key, solutions and your answers. Opens once your attempt is submitted and scored.
   """
   examReview(nodeId: ID!): JSON!
   myExamAttempt(nodeId: ID!): MyExamAttemptEntity
